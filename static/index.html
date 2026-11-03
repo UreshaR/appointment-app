@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Appointment Manager</title>
+  <style>
+    body { font-family: Arial, sans-serif; max-width: 900px; margin: 30px auto; padding: 0 12px; }
+    form, .filters { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; }
+    input, select, button { padding: 8px; }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { border-bottom: 1px solid #ddd; padding: 8px; text-align: left; }
+    .error { color: #b00020; }
+    .Booked { color: #0a6; } .Completed { color: #06c; } .Cancelled { color: #999; }
+  </style>
+</head>
+<body>
+  <h1>Appointments</h1>
+  <p id="error" class="error"></p>
+
+  <form id="form">
+    <input id="patient_name" placeholder="Patient name" required>
+    <input id="date" type="date" required>
+    <input id="time" type="time" required>
+    <select id="status">
+      <option>Booked</option><option>Completed</option><option>Cancelled</option>
+    </select>
+    <input id="notes" placeholder="Notes">
+    <button type="submit" id="saveBtn">Add</button>
+    <button type="button" id="cancelEdit" hidden>Cancel edit</button>
+  </form>
+
+  <div class="filters">
+    <input id="q" placeholder="Search patient">
+    <input id="filterDate" type="date">
+    <select id="filterStatus">
+      <option value="">All statuses</option>
+      <option>Booked</option><option>Completed</option><option>Cancelled</option>
+    </select>
+  </div>
+
+  <table>
+    <thead><tr><th>Patient</th><th>Date</th><th>Time</th><th>Status</th><th>Notes</th><th></th></tr></thead>
+    <tbody id="rows"></tbody>
+  </table>
+
+<script>
+  const $ = id => document.getElementById(id);
+  let list = [];
+  let editingId = null;
+
+  const esc = s => String(s ?? "").replace(/[&<>"']/g,
+    c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
+  async function load() {
+    const p = new URLSearchParams();
+    if ($("q").value) p.set("q", $("q").value);
+    if ($("filterDate").value) p.set("date", $("filterDate").value);
+    if ($("filterStatus").value) p.set("status", $("filterStatus").value);
+    list = await (await fetch("/api/appointments?" + p)).json();
+    $("rows").innerHTML = list.map(a => `
+      <tr>
+        <td>${esc(a.patient_name)}</td><td>${a.date}</td><td>${a.time}</td>
+        <td class="${a.status}">${a.status}</td><td>${esc(a.notes)}</td>
+        <td>
+          <button onclick="startEdit(${a.id})">Edit</button>
+          <button onclick="remove(${a.id})">Delete</button>
+        </td>
+      </tr>`).join("");
+  }
+
+  function resetForm() {
+    editingId = null;
+    $("form").reset();
+    $("saveBtn").textContent = "Add";
+    $("cancelEdit").hidden = true;
+  }
+
+  function startEdit(id) {
+    const a = list.find(x => x.id === id);
+    editingId = id;
+    ["patient_name", "date", "time", "status", "notes"].forEach(k => $(k).value = a[k]);
+    $("saveBtn").textContent = "Update";
+    $("cancelEdit").hidden = false;
+  }
+
+  async function remove(id) {
+    if (!confirm("Delete this appointment?")) return;
+    await fetch("/api/appointments/" + id, { method: "DELETE" });
+    load();
+  }
+
+  $("form").addEventListener("submit", async e => {
+    e.preventDefault();
+    $("error").textContent = "";
+    const body = {};
+    ["patient_name", "date", "time", "status", "notes"].forEach(k => body[k] = $(k).value);
+    const res = await fetch(
+      editingId ? "/api/appointments/" + editingId : "/api/appointments",
+      { method: editingId ? "PUT" : "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }
+    );
+    if (!res.ok) {
+      $("error").textContent = (await res.json()).errors.join(" ");
+      return;
+    }
+    resetForm();
+    load();
+  });
+
+  $("cancelEdit").addEventListener("click", resetForm);
+  ["q", "filterDate", "filterStatus"].forEach(id => $(id).addEventListener("input", load));
+  load();
+</script>
+</body>
+</html>
